@@ -14,10 +14,7 @@
  */
 
 
-
-
-#include <Bounce2.h>
-
+#include <LinkedList.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -26,17 +23,11 @@
 #define OLED_RESET 4
 Adafruit_SSD1306 display(OLED_RESET);
 
-#define NUMFLAKES 10
-#define XPOS 0
-#define YPOS 1
-#define DELTAY 2
+const unsigned long countInterval = 40000;
+const unsigned long updateInterval = 200;
+const unsigned long calculateMaxInterval = 5000;
 
-//////////////////////////////////////////////////////////////////////////////
-
-unsigned long previousMillis = 0; 
-unsigned long previousMillis1 = 0; 
-const long interval = 40000; 
-const long interval1 = 500; 
+const unsigned long minutesToCountMax = 3; 
 
 static const unsigned char PROGMEM lcd_bmp[] =
 { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -178,150 +169,177 @@ static const unsigned char PROGMEM bt1[] =
 #error("Height incorrect, please fix Adafruit_SSD1306.h!");
 #endif
 
-const int buttonPin = 2; 
-const int ledPin =  13;
+#define SENSOR_PIN 2
+#define BUZZER_PIN 7
 
-int buttonState = 0;
-int bt = 0;
-int pbt = 0;
-int s1 = 0;
-unsigned long j;
-unsigned long CR = 0;
+volatile unsigned int newTicks = 0;
+unsigned int currentMaxTicks = 0;
+const unsigned int maxTicksLimit = minutesToCountMax * 60000 / calculateMaxInterval;
+unsigned int overallMaxTicks = 0;
 
-unsigned long cs;
-int sec;
-/////////////////////////////////
+LinkedList<unsigned long> tickTimes;
+LinkedList<unsigned int> maxTicks;
 
 float input_voltage = 0.0;
-float temp=0.0;
 
-
-///////////////////////////////////
-
-Bounce bouncer = Bounce();
-
+unsigned long previousMaxIntervalMillis;
 
 void setup() {
-
-Serial.begin(9600);
-delay(2000);// added due to a resistors misplaced on the display board
-display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
-
-display.display();
-
-display.clearDisplay();
-
-//display.drawBitmap(0, 0, logo, 128, 32, WHITE);
-//display.display();
-//delay(2000);
-//display.clearDisplay();
+  Serial.begin(9600);
+  delay(500);// added due to a resistors misplaced on the display board
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
   
-TCCR1A = TCCR1A & 0xe0 | 2;
-TCCR1B = TCCR1B & 0xe0 | 0x09; 
-analogWrite(9,22 ); // на выводе 9 ШИМ=10%
+  display.display();
+  
+  display.clearDisplay();
+  
+  //display.drawBitmap(0, 0, logo, 128, 32, WHITE);
+  //display.display();
+  //delay(2000);
+  //display.clearDisplay();
+        
+  pinMode(BUZZER_PIN, OUTPUT); // buzzer
+  
+  pinMode(SENSOR_PIN, INPUT_PULLUP); //sensor
+//  digitalWrite(SENSOR_PIN, HIGH); // подключаем встроенный подтягивающий резистор  ???
+  attachInterrupt(digitalPinToInterrupt(SENSOR_PIN), sensorISR, FALLING);
 
-pinMode(ledPin, OUTPUT); //
+  previousMaxIntervalMillis = millis();
 
-pinMode (7, OUTPUT); // buzzer
+  Serial.println("!!!!!!!!!!!!!!!setup");
+}
 
-pinMode(2 ,INPUT); // кнопка на пине 2
-digitalWrite(2 ,HIGH); // подключаем встроенный подтягивающий резистор
-bouncer .attach(2); // устанавливаем кнопку
-bouncer .interval(5); // устанавливаем параметр stable interval = 5 мс
-
+void sensorISR() {
+  newTicks++;
+  Serial.println("Tick!");
 }
 
 void loop() {
+  Serial.println(millis()/1000);
+  boolean hasNewTicks = (newTicks > 0);
 
-  
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  updateTicks();  
+  readVoltage();
+     
+  updateDisplay(hasNewTicks);
+  activateBuzzer(false);//hasNewTicks);
 
-
- unsigned long currentMillis = millis();
- unsigned long currentMillis1 = millis();
-
-
-if (bouncer.update())
- { //если произошло событие
-  if (bouncer.read()==0)
-  { bt++;
-  }
+  delay(updateInterval);
 }
 
-  if (currentMillis - previousMillis >= interval) {
-    previousMillis = currentMillis;
-    CR = bt;
-    bt = 0;
-  }
-  
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  if (bt != pbt) {
-    pbt = bt;
-    s1 = 1;
-}
-////////////////////////////////////////////VOLTMETER PIN A3////////////////////////////////////////////////////////////////////
-
- int analog_value = analogRead(A3);
-   input_voltage = (analog_value * 5.0) / 1024.0; 
-
+void readVoltage() {
+  int analog_value = analogRead(A3);
+  input_voltage = (analog_value * 5.0) / 1024.0; 
    
-   if (input_voltage < 0.1) 
-   {
-     input_voltage=0.0;
-   } 
+  if (input_voltage < 0.1) {
+    input_voltage = 0.0;
+  }
+}
 
+void updateTicks() { 
+  unsigned long currentMillis = millis();
+  unsigned long previousMillis;
+  
+  for(; newTicks > 0; newTicks--) {
+    tickTimes.add(currentMillis); //precise tick time may not be stored as update period is much longer and is the same for adding and removing ticks
+  }
     
-///////////////////////////////////////////////TEXT ON DISPLAY//////////////////////////////////////////////////////////////////
-display.clearDisplay();
+  while(tickTimes.size() > 0) {
+    previousMillis = tickTimes.get(0);
+
+    if(currentMillis < previousMillis) { //reset list upon overrunning
+      tickTimes.clear();
+
+      break;
+    }
+
+    if((currentMillis - previousMillis) < countInterval) {
+      break;
+    }
+    
+    tickTimes.remove(0);
+  }
+
+  if(tickTimes.size() > currentMaxTicks) {
+    currentMaxTicks = tickTimes.size();
+  }
+
+  if((currentMillis - previousMaxIntervalMillis) >= calculateMaxInterval) {
+    while(maxTicks.size() >= maxTicksLimit) {
+      maxTicks.remove(0);
+    }
+    
+    maxTicks.add(currentMaxTicks);
+
+//    Serial.print("Added: ");
+//    Serial.println(maxTicks.get(maxTicks.size() - 1));
+
+//    Serial.print("Size: ");
+//    Serial.println(maxTicks.size());
+    
+    currentMaxTicks = 0;
+    previousMaxIntervalMillis = currentMillis;
+
+    overallMaxTicks = 0;
+    for(unsigned int i = 0; i < maxTicks.size(); i++) {
+      if(maxTicks.get(i) > overallMaxTicks) {
+        overallMaxTicks = maxTicks.get(i);
+      }
+    }
+
+//    Serial.print("Overall: ");
+//    Serial.println(overallMaxTicks);
+  }
+}
+
+void updateDisplay(boolean hasNewTicks) {
+  ///////////////////////////////////////////////TEXT ON DISPLAY//////////////////////////////////////////////////////////////////
+  display.clearDisplay();
   display.setTextSize(2);
   display.setTextColor(WHITE);
   display.setCursor(10,0);
-  display.clearDisplay();
-  display.println(CR);
+//  display.clearDisplay();
+  display.println(tickTimes.size());
   display.setCursor(10,18);
-  display.println(bt);
-  display.setCursor(40,18);
-  display.println();
+  display.println(overallMaxTicks);  
   display.setTextSize(1);
   display.setCursor(40,0);
-  display.println("mR/hr");
-
+  display.println("mR/h");
+  display.setCursor(40,18);
+  display.println("mR/h");
   
-/////////////////////////////////////////////////BATTERY  INDICATION////////////////////////////////////////////
-display.drawBitmap(0, 0, fl, 128, 32, WHITE);
-
-if (input_voltage > 3.3) {
-  display.drawBitmap(0, 0, bt1, 128, 32, WHITE);
-  if (input_voltage > 3.4) {
-    display.drawBitmap(0, -5, bt1, 128, 32, WHITE);
-    if (input_voltage > 3.5) {
-      display.drawBitmap(0, -10, bt1, 128, 32, WHITE);
-       if (input_voltage > 3.6) {
-        display.drawBitmap(0, -15, bt1, 128, 32, WHITE);
-        if (input_voltage > 3.8) {
-          display.drawBitmap(0, -20, bt1, 128, 32, WHITE);
+  /////////////////////////////////////////////////BATTERY  INDICATION////////////////////////////////////////////
+  display.drawBitmap(0, 0, fl, 128, 32, WHITE);
+  
+  if (input_voltage > 3.3) {
+    display.drawBitmap(0, 0, bt1, 128, 32, WHITE);
+    if (input_voltage > 3.4) {
+      display.drawBitmap(0, -5, bt1, 128, 32, WHITE);
+      if (input_voltage > 3.5) {
+        display.drawBitmap(0, -10, bt1, 128, 32, WHITE);
+         if (input_voltage > 3.6) {
+          display.drawBitmap(0, -15, bt1, 128, 32, WHITE);
+          if (input_voltage > 3.8) {
+            display.drawBitmap(0, -20, bt1, 128, 32, WHITE);
+          }
         }
       }
     }
   }
-}
 
-////////////////////////////////////////////////////RADIATION ICON AND BUZZER/////////////////////////////////////////////////////////////
-if (s1 == 1){
-    display.drawBitmap(-10, 0, lcd_bmp, 128, 32, WHITE);
-    digitalWrite (7, HIGH); // buzzer ON
-}
-else
-{
-    digitalWrite (7, LOW); // buzzer OFF
-}
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
- if (currentMillis1 - previousMillis1 >= interval1) {
-    previousMillis1 = currentMillis1;    
-    if (s1 == 1){
-      s1=0;
-    }
+  ////////////////////////////////////////////////////RADIATION ICON/////////////////////////////////////////////////////////////
+  if (hasNewTicks) {
+      display.drawBitmap(-10, 0, lcd_bmp, 128, 32, WHITE);
   }
+
   display.display();
 }
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void activateBuzzer(boolean hasNewTicks) {
+  if (hasNewTicks) {
+      digitalWrite (BUZZER_PIN, HIGH); // buzzer ON
+  } else {
+      digitalWrite (BUZZER_PIN, LOW); // buzzer OFF
+  }
+}
+
