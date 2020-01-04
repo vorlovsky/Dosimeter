@@ -241,10 +241,10 @@ void loop() {
  unsigned long currentMillis1 = millis();
 
 
-if (bouncer.update())
- { //если произошло событие
-  if (bouncer.read()==0)
-  { bt++;
+if (bouncer.update()) { //если произошло событие
+  if (bouncer.read()==0) { 
+    bt++;
+    Serial.println("Tick");
   }
 }
 
@@ -258,21 +258,21 @@ if (bouncer.update())
   if (bt != pbt) {
     pbt = bt;
     s1 = 1;
-}
+  }
 ////////////////////////////////////////////VOLTMETER PIN A3////////////////////////////////////////////////////////////////////
 
- int analog_value = analogRead(A3);
-   input_voltage = (analog_value * 5.0) / 1024.0; 
-
-   
-   if (input_voltage < 0.1) 
-   {
-     input_voltage=0.0;
-   } 
+  int analog_value = analogRead(A3);
+  input_voltage = (analog_value * 5.0) / 1024.0; 
+  
+  
+  if (input_voltage < 0.1) 
+  {
+    input_voltage=0.0;
+  } 
 
     
 ///////////////////////////////////////////////TEXT ON DISPLAY//////////////////////////////////////////////////////////////////
-display.clearDisplay();
+  display.clearDisplay();
   display.setTextSize(2);
   display.setTextColor(WHITE);
   display.setCursor(10,0);
@@ -316,11 +316,15 @@ else
     digitalWrite (7, LOW); // buzzer OFF
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
- if (currentMillis1 - previousMillis1 >= interval1) {
+ if (currentMillis1 - previousMillis1 >= interval1) {  
     previousMillis1 = currentMillis1;    
     if (s1 == 1){
       s1=0;
     }
+
+    Serial.print(currentMillis / 1000);
+    Serial.print(" ");
+    Serial.println(CR);
   }
   display.display();
 }
