@@ -23,7 +23,7 @@
 #define OLED_RESET 4
 Adafruit_SSD1306 display(OLED_RESET);
 
-const unsigned long countInterval = 40000;
+const unsigned long countInterval = 36000;
 const unsigned long updateInterval = 200;
 const unsigned long calculateMaxInterval = 5000;
 
@@ -200,8 +200,8 @@ void setup() {
         
   pinMode(BUZZER_PIN, OUTPUT); // buzzer
   
-  pinMode(SENSOR_PIN, INPUT_PULLUP); //sensor
-//  digitalWrite(SENSOR_PIN, HIGH); // подключаем встроенный подтягивающий резистор  ???
+  pinMode(SENSOR_PIN, INPUT); //sensor
+  digitalWrite(SENSOR_PIN, HIGH); // подключаем встроенный подтягивающий резистор  ???
   attachInterrupt(digitalPinToInterrupt(SENSOR_PIN), sensorISR, FALLING);
 
   previousMaxIntervalMillis = millis();
@@ -211,14 +211,20 @@ void setup() {
 
 void sensorISR() {
   newTicks++;
-  Serial.println("Tick!");
+  delay(5);
 }
 
-void loop() {
-  Serial.println(millis()/1000);
+void loop() {  
   boolean hasNewTicks = (newTicks > 0);
 
-  updateTicks();  
+  if(hasNewTicks) {
+    Serial.print(millis()/1000);
+    Serial.print(" ");
+    Serial.println(newTicks);
+    newTicks = 0;
+  }
+
+  //updateTicks();  
   readVoltage();
      
   updateDisplay(hasNewTicks);
