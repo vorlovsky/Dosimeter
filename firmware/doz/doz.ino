@@ -26,11 +26,6 @@
 #define OLED_RESET 4
 Adafruit_SSD1306 display(OLED_RESET);
 
-#define NUMFLAKES 10
-#define XPOS 0
-#define YPOS 1
-#define DELTAY 2
-
 //////////////////////////////////////////////////////////////////////////////
 
 unsigned long previousMillis = 0; 
@@ -178,10 +173,6 @@ static const unsigned char PROGMEM bt1[] =
 #error("Height incorrect, please fix Adafruit_SSD1306.h!");
 #endif
 
-const int buttonPin = 2; 
-const int ledPin =  13;
-
-int buttonState = 0;
 int bt = 0;
 int pbt = 0;
 int s1 = 0;
@@ -193,7 +184,6 @@ int sec;
 /////////////////////////////////
 
 float input_voltage = 0.0;
-float temp=0.0;
 
 
 ///////////////////////////////////
@@ -204,30 +194,24 @@ Bounce bouncer = Bounce();
 void setup() {
 
 Serial.begin(9600);
-delay(500);// added due to a resistors misplaced on the display board
+delay(2000);// added due to a resistors misplaced on the display board
 display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
 
 display.display();
 
 display.clearDisplay();
 
-display.drawBitmap(0, 0, logo, 128, 32, WHITE);
-display.display();
-delay(1000);
-display.clearDisplay();
-  
-TCCR1A = TCCR1A & 0xe0 | 2;
-TCCR1B = TCCR1B & 0xe0 | 0x09; 
-analogWrite(9,22 ); // на выводе 9 ШИМ=10%
-
-pinMode(ledPin, OUTPUT); //
+//display.drawBitmap(0, 0, logo, 128, 32, WHITE);
+//display.display();
+//delay(1000);
+//display.clearDisplay();
 
 pinMode (7, OUTPUT); // buzzer
 
 pinMode(2 ,INPUT); // кнопка на пине 2
 digitalWrite(2 ,HIGH); // подключаем встроенный подтягивающий резистор
-bouncer .attach(2); // устанавливаем кнопку
-bouncer .interval(5); // устанавливаем параметр stable interval = 5 мс
+bouncer.attach(2); // устанавливаем кнопку
+bouncer.interval(5); // устанавливаем параметр stable interval = 5 мс
 
 }
 
