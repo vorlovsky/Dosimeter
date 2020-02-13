@@ -16,7 +16,7 @@
 #include <Adafruit_SSD1306.h>
 
 #define OLED_RESET 4
-Adafruit_SSD1306 display(OLED_RESET);
+Adafruit_SSD1306 display(128, 32, &Wire, OLED_RESET);
 
 #define DEBUG 0
 
@@ -156,16 +156,11 @@ static const unsigned char PROGMEM bt1[] =
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-#if (SSD1306_LCDHEIGHT != 32)
-#error("Height incorrect, please fix Adafruit_SSD1306.h!");
-#endif
-
 #define SENSOR_PIN 2
 #define BUZZER_PIN 7
 #define BATTERY_PIN A3
 
 #define MEASUREMENT_SECS 40
-#define UPDATES_PER_SEC 10
 
 volatile unsigned int newTicks = 0;
 
@@ -183,12 +178,16 @@ float voltage = 0;
 
 void setup() {
   Serial.begin(115200);
+  
   delay(1000);// added due to a resistors misplaced on the display board
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
+    Serial.println(F("SSD1306 allocation failed"));
+    return;
+  }
   
-  display.display();
+//  display.display();
   
-  display.clearDisplay();
+//  display.clearDisplay();
   
   //display.drawBitmap(0, 0, logo, 128, 32, WHITE);
   //display.display();
@@ -209,8 +208,9 @@ void sensorISR() {
   newTicks++;
 }
 
-void loop() {  
-  unsigned long startMillis = millis();
+void loop() {
+//  unsigned long startMillis = millis();
+
   unsigned int _newTicks = newTicks;
   newTicks = 0;
   
@@ -224,9 +224,7 @@ void loop() {
   updateDisplay(hasNewTicks);
   activateBuzzer(hasNewTicks);
 
-  Serial.println(millis() - startMillis);
-
-  delay(1000 / UPDATES_PER_SEC);
+//  Serial.println(millis() - startMillis);
 }
 
 void readVoltage() {
@@ -282,6 +280,8 @@ void updateTickLogs() {
 }
 
 void updateDisplay(boolean hasNewTicks) {
+  display.clearDisplay(); 
+  
   drawMeasuredValues();  
   drawBatteryLevel();
   drawRadiationImage(hasNewTicks);
@@ -289,8 +289,7 @@ void updateDisplay(boolean hasNewTicks) {
   display.display();
 }
 
-void drawMeasuredValues() {
-  display.clearDisplay();  
+void drawMeasuredValues() {   
   display.setTextColor(WHITE);
   
   display.setTextSize(2);
@@ -299,11 +298,13 @@ void drawMeasuredValues() {
   display.setTextSize(1);
   display.println("uR/h");
   
-  display.setTextSize(2);
-  display.setCursor(10,18);
-  display.print(tickCountsLogSum / (logsIndex + 1));// average ticks count
-  display.setTextSize(1);
-  display.println("uR/h");
+  if(logsIndex >= 0) {
+    display.setTextSize(2);
+    display.setCursor(10,18);   
+    display.print(tickCountsLogSum / (logsIndex + 1));// average ticks count
+    display.setTextSize(1);
+    display.println("uR/h");
+  }
 }
 
 void drawBatteryLevel() {
