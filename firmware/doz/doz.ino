@@ -23,11 +23,7 @@
 #define OLED_RESET 4
 Adafruit_SSD1306 display(OLED_RESET);
 
-const unsigned long countInterval = 36000;
-const unsigned long updateInterval = 200;
-const unsigned long calculateMaxInterval = 5000;
-
-const unsigned long minutesToCountMax = 3; 
+#define DEBUG 0
 
 static const unsigned char PROGMEM lcd_bmp[] =
 { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -172,20 +168,24 @@ static const unsigned char PROGMEM bt1[] =
 #define SENSOR_PIN 2
 #define BUZZER_PIN 7
 
-volatile unsigned int newTicks = 0;
-unsigned int currentMaxTicks = 0;
-const unsigned int maxTicksLimit = minutesToCountMax * 60000 / calculateMaxInterval;
-unsigned int overallMaxTicks = 0;
+#define MEASUREMENT_SECS 40
+#define UPDATES_PER_SEC 10
 
-LinkedList<unsigned long> tickTimes;
-LinkedList<unsigned int> maxTicks;
+volatile unsigned int newTicks = 0;
+
+unsigned long lastLogTime;
+unsigned int ticks[MEASUREMENT_SECS];
+unsigned int tickCounts[MEASUREMENT_SECS];
+int tickIndex = -1;
+unsigned int ticksCount = 0;
+unsigned int ticksCountPerSec = 0;
+unsigned long tickCountsSum = 0;
+unsigned int ticksAverage;
 
 float input_voltage = 0.0;
 
-unsigned long previousMaxIntervalMillis;
-
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   delay(500);// added due to a resistors misplaced on the display board
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
   
@@ -198,39 +198,35 @@ void setup() {
   //delay(2000);
   //display.clearDisplay();
         
-  pinMode(BUZZER_PIN, OUTPUT); // buzzer
-  
-  pinMode(SENSOR_PIN, INPUT); //sensor
-  digitalWrite(SENSOR_PIN, HIGH); // подключаем встроенный подтягивающий резистор  ???
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(SENSOR_PIN, INPUT);
+
+  lastLogTime = millis();
+
   attachInterrupt(digitalPinToInterrupt(SENSOR_PIN), sensorISR, FALLING);
 
-  previousMaxIntervalMillis = millis();
-
-  Serial.println("!!!!!!!!!!!!!!!setup");
+#ifdef DEBUG
+  Serial.println("Setup complete");
+#endif
 }
 
 void sensorISR() {
   newTicks++;
-  delay(5);
 }
 
-void loop() {  
-  boolean hasNewTicks = (newTicks > 0);
+void loop() {
+  unsigned int _newTicks = newTicks;
+  newTicks = 0;
+  
+  boolean hasNewTicks = (_newTicks > 0);
 
-  if(hasNewTicks) {
-    Serial.print(millis()/1000);
-    Serial.print(" ");
-    Serial.println(newTicks);
-    newTicks = 0;
-  }
-
-  //updateTicks();  
+  updateTicks(_newTicks);
   readVoltage();
      
   updateDisplay(hasNewTicks);
-  activateBuzzer(false);//hasNewTicks);
+//  activateBuzzer(hasNewTicks);
 
-  delay(updateInterval);
+  delay(1000 / UPDATES_PER_SEC);
 }
 
 void readVoltage() {
@@ -242,59 +238,33 @@ void readVoltage() {
   }
 }
 
-void updateTicks() { 
-  unsigned long currentMillis = millis();
-  unsigned long previousMillis;
+void updateTicks(unsigned int newValue) {
+  ticksCountPerSec += newValue;
   
-  for(; newTicks > 0; newTicks--) {
-    tickTimes.add(currentMillis); //precise tick time may not be stored as update period is much longer and is the same for adding and removing ticks
-  }
-    
-  while(tickTimes.size() > 0) {
-    previousMillis = tickTimes.get(0);
-
-    if(currentMillis < previousMillis) { //reset list upon overrunning
-      tickTimes.clear();
-
-      break;
-    }
-
-    if((currentMillis - previousMillis) < countInterval) {
-      break;
-    }
-    
-    tickTimes.remove(0);
-  }
-
-  if(tickTimes.size() > currentMaxTicks) {
-    currentMaxTicks = tickTimes.size();
-  }
-
-  if((currentMillis - previousMaxIntervalMillis) >= calculateMaxInterval) {
-    while(maxTicks.size() >= maxTicksLimit) {
-      maxTicks.remove(0);
-    }
-    
-    maxTicks.add(currentMaxTicks);
-
-//    Serial.print("Added: ");
-//    Serial.println(maxTicks.get(maxTicks.size() - 1));
-
-//    Serial.print("Size: ");
-//    Serial.println(maxTicks.size());
-    
-    currentMaxTicks = 0;
-    previousMaxIntervalMillis = currentMillis;
-
-    overallMaxTicks = 0;
-    for(unsigned int i = 0; i < maxTicks.size(); i++) {
-      if(maxTicks.get(i) > overallMaxTicks) {
-        overallMaxTicks = maxTicks.get(i);
+  if((millis() - lastLogTime) < 1000) {    
+    ticksCount += newValue;
+  } else {
+    lastLogTime = millis();
+        
+    if(tickIndex < (MEASUREMENT_SECS - 1)) {
+      tickIndex++;
+    } else {
+      ticksCount -= ticks[0];
+      tickCountsSum -= tickCounts[0];
+      
+      for(byte i = 1; i <= tickIndex; i++) {
+        ticks[i - 1] = ticks[i];
+        tickCounts[i - 1] = tickCounts[i];
       }
     }
 
-//    Serial.print("Overall: ");
-//    Serial.println(overallMaxTicks);
+    ticks[tickIndex] = ticksCountPerSec;
+    ticksCount += newValue;
+    ticksCountPerSec = 0;
+    tickCounts[tickIndex] = ticksCount;
+    tickCountsSum += ticksCount;
+
+    ticksAverage = tickCountsSum / (tickIndex + 1);
   }
 }
 
@@ -304,15 +274,14 @@ void updateDisplay(boolean hasNewTicks) {
   display.setTextSize(2);
   display.setTextColor(WHITE);
   display.setCursor(10,0);
-//  display.clearDisplay();
-  display.println(tickTimes.size());
-  display.setCursor(10,18);
-  display.println(overallMaxTicks);  
+  display.print(ticksCount);
   display.setTextSize(1);
-  display.setCursor(40,0);
-  display.println("mR/h");
-  display.setCursor(40,18);
-  display.println("mR/h");
+  display.println("uR/h");
+  display.setTextSize(2);
+  display.setCursor(10,18);
+  display.print(ticksAverage);  
+  display.setTextSize(1);
+  display.println("uR/h");
   
   /////////////////////////////////////////////////BATTERY  INDICATION////////////////////////////////////////////
   display.drawBitmap(0, 0, fl, 128, 32, WHITE);
