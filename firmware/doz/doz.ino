@@ -2,14 +2,9 @@
  * 
  * SCL - A5
  * SDA - A4
- * 
- * 
- * Voltmeter - A3
- * 
- * PWM - D9
+ * Voltmeter - A3 
  * Input - D2
- * 
- * buzzer - D7
+ * Buzzer - D7
  * 
  */
 
@@ -167,26 +162,28 @@ static const unsigned char PROGMEM bt1[] =
 
 #define SENSOR_PIN 2
 #define BUZZER_PIN 7
+#define BATTERY_PIN A3
 
 #define MEASUREMENT_SECS 40
 #define UPDATES_PER_SEC 10
 
 volatile unsigned int newTicks = 0;
 
-unsigned long lastLogTime;
-unsigned int ticks[MEASUREMENT_SECS];
-unsigned int tickCounts[MEASUREMENT_SECS];
-int tickIndex = -1;
+unsigned int ticksLog[MEASUREMENT_SECS];
+unsigned int tickCountsLog[MEASUREMENT_SECS];
+int logsIndex = -1;
 unsigned int ticksCount = 0;
 unsigned int ticksCountPerSec = 0;
-unsigned long tickCountsSum = 0;
-unsigned int ticksAverage;
+unsigned long tickCountsLogSum = 0;
 
-float input_voltage = 0.0;
+unsigned long lastTickLogsUpdateTime = 0;
+unsigned long lastVoltageReadTime = 0;
+
+float voltage = 0;
 
 void setup() {
   Serial.begin(115200);
-  delay(500);// added due to a resistors misplaced on the display board
+  delay(1000);// added due to a resistors misplaced on the display board
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
   
   display.display();
@@ -201,11 +198,9 @@ void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(SENSOR_PIN, INPUT);
 
-  lastLogTime = millis();
-
   attachInterrupt(digitalPinToInterrupt(SENSOR_PIN), sensorISR, FALLING);
 
-#ifdef DEBUG
+#if DEBUG
   Serial.println("Setup complete");
 #endif
 }
@@ -214,107 +209,146 @@ void sensorISR() {
   newTicks++;
 }
 
-void loop() {
+void loop() {  
+  unsigned long startMillis = millis();
   unsigned int _newTicks = newTicks;
   newTicks = 0;
   
-  boolean hasNewTicks = (_newTicks > 0);
-
   updateTicks(_newTicks);
+  
+  updateTickLogs();
   readVoltage();
+
+  boolean hasNewTicks = (_newTicks > 0);
      
   updateDisplay(hasNewTicks);
-//  activateBuzzer(hasNewTicks);
+  activateBuzzer(hasNewTicks);
+
+  Serial.println(millis() - startMillis);
 
   delay(1000 / UPDATES_PER_SEC);
 }
 
 void readVoltage() {
-  int analog_value = analogRead(A3);
-  input_voltage = (analog_value * 5.0) / 1024.0; 
+  if(!isTimeOut(lastVoltageReadTime, 1000)) {
+    return;
+  }
+  
+  voltage = (analogRead(BATTERY_PIN) * 5.0) / 1024.0; 
    
-  if (input_voltage < 0.1) {
-    input_voltage = 0.0;
+  if (voltage < 0.1) {
+    voltage = 0.0;
   }
 }
 
 void updateTicks(unsigned int newValue) {
   ticksCountPerSec += newValue;
-  
-  if((millis() - lastLogTime) < 1000) {    
-    ticksCount += newValue;
-  } else {
-    lastLogTime = millis();
-        
-    if(tickIndex < (MEASUREMENT_SECS - 1)) {
-      tickIndex++;
-    } else {
-      ticksCount -= ticks[0];
-      tickCountsSum -= tickCounts[0];
-      
-      for(byte i = 1; i <= tickIndex; i++) {
-        ticks[i - 1] = ticks[i];
-        tickCounts[i - 1] = tickCounts[i];
-      }
-    }
+  ticksCount += newValue;
 
-    ticks[tickIndex] = ticksCountPerSec;
-    ticksCount += newValue;
-    ticksCountPerSec = 0;
-    tickCounts[tickIndex] = ticksCount;
-    tickCountsSum += ticksCount;
-
-    ticksAverage = tickCountsSum / (tickIndex + 1);
+#if DEBUG
+  if(newValue > 0) {
+    Serial.print(millis());
+    Serial.print(" ");
+    Serial.print(newValue);
+    Serial.print(" ");
+    Serial.println(ticksCount);
   }
+#endif
+}
+
+void updateTickLogs() {
+  if(!isTimeOut(lastTickLogsUpdateTime, 1000)) {
+    return;
+  }
+      
+  if(logsIndex < (MEASUREMENT_SECS - 1)) {
+    logsIndex++;
+  } else {
+    ticksCount -= ticksLog[0];
+    tickCountsLogSum -= tickCountsLog[0];
+    
+    for(byte i = 1; i <= logsIndex; i++) {
+      ticksLog[i - 1] = ticksLog[i];
+      tickCountsLog[i - 1] = tickCountsLog[i];
+    }
+  }
+
+  ticksLog[logsIndex] = ticksCountPerSec;
+  ticksCountPerSec = 0;
+  
+  tickCountsLog[logsIndex] = ticksCount;
+  
+  tickCountsLogSum += ticksCount;
 }
 
 void updateDisplay(boolean hasNewTicks) {
-  ///////////////////////////////////////////////TEXT ON DISPLAY//////////////////////////////////////////////////////////////////
-  display.clearDisplay();
-  display.setTextSize(2);
+  drawMeasuredValues();  
+  drawBatteryLevel();
+  drawRadiationImage(hasNewTicks);
+
+  display.display();
+}
+
+void drawMeasuredValues() {
+  display.clearDisplay();  
   display.setTextColor(WHITE);
+  
+  display.setTextSize(2);
   display.setCursor(10,0);
   display.print(ticksCount);
   display.setTextSize(1);
   display.println("uR/h");
+  
   display.setTextSize(2);
   display.setCursor(10,18);
-  display.print(ticksAverage);  
+  display.print(tickCountsLogSum / (logsIndex + 1));// average ticks count
   display.setTextSize(1);
   display.println("uR/h");
-  
-  /////////////////////////////////////////////////BATTERY  INDICATION////////////////////////////////////////////
+}
+
+void drawBatteryLevel() {
   display.drawBitmap(0, 0, fl, 128, 32, WHITE);
   
-  if (input_voltage > 3.3) {
+  if (voltage > 3.3) {
     display.drawBitmap(0, 0, bt1, 128, 32, WHITE);
-    if (input_voltage > 3.4) {
+    if (voltage > 3.4) {
       display.drawBitmap(0, -5, bt1, 128, 32, WHITE);
-      if (input_voltage > 3.5) {
+      if (voltage > 3.5) {
         display.drawBitmap(0, -10, bt1, 128, 32, WHITE);
-         if (input_voltage > 3.6) {
+         if (voltage > 3.6) {
           display.drawBitmap(0, -15, bt1, 128, 32, WHITE);
-          if (input_voltage > 3.8) {
+          if (voltage > 3.8) {
             display.drawBitmap(0, -20, bt1, 128, 32, WHITE);
           }
         }
       }
     }
   }
+}
 
-  ////////////////////////////////////////////////////RADIATION ICON/////////////////////////////////////////////////////////////
+void drawRadiationImage(boolean hasNewTicks) {
   if (hasNewTicks) {
       display.drawBitmap(-10, 0, lcd_bmp, 128, 32, WHITE);
   }
-
-  display.display();
 }
 
 void activateBuzzer(boolean hasNewTicks) {
   if (hasNewTicks) {
-      digitalWrite (BUZZER_PIN, HIGH); // buzzer ON
+      digitalWrite(BUZZER_PIN, HIGH); // buzzer ON
   } else {
-      digitalWrite (BUZZER_PIN, LOW); // buzzer OFF
+      digitalWrite(BUZZER_PIN, LOW); // buzzer OFF
   }
+}
+
+boolean isTimeOut(unsigned long& lastTimestamp, unsigned long duration) {
+  unsigned long currentTimestamp = millis();
+  
+  if((currentTimestamp - lastTimestamp) < duration) {
+    return false;
+  }
+  
+  lastTimestamp = currentTimestamp;
+
+  return true;
 }
 
