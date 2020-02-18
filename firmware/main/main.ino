@@ -4,6 +4,7 @@
  * SDA - A4
  * Voltmeter - A3 
  * Input - D2
+ * Button - D3
  * Buzzer - D7
  * 
  */
