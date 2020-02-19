@@ -12,6 +12,7 @@ Display modes to loop through (each one shows current level of radiation togeter
 1. average level for the last 60 sec ("avg")
 2. max level for the last 60 sec ("max")
 3. max level for the whole session time ("Max")  
+
 Buzzer can be muted/unmuted by holding down the button for 2+ sec.
 
 PCBs are designed to fit the Kradex Z34 case (https://www.tme.eu/ua/ru/details/z-34/korpusa-universalnye/kradex/z34/)
