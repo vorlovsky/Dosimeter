@@ -269,7 +269,9 @@ void readVoltage() {
     return;
   }
   
-  voltage += (analogRead(BATTERY_PIN) * 5.0) / 1024.0; 
+  voltage = (analogRead(BATTERY_PIN) * 5.0) / 1024.0; 
+
+//  Serial.println(voltage);
    
   if (voltage < 0.1) {
     voltage = 0.0;
@@ -429,13 +431,13 @@ void drawOverallMaxValue() {
 void drawBatteryLevel() {
   display.drawBitmap(118, 0, battery_frame_bmp, 8, 16, WHITE);
   
-  if (voltage > 3.3) {
+  if (voltage > 3.6) {
     display.drawBitmap(118, 11, battery_level_bmp, 8, 3, WHITE);
     
-    if (voltage > 3.6) {
+    if (voltage > 3.8) {
       display.drawBitmap(118, 8, battery_level_bmp, 8, 3, WHITE);
       
-      if (voltage > 3.8) {
+      if (voltage > 4.0) {
         display.drawBitmap(118, 5, battery_level_bmp, 8, 3, WHITE);
       }
     }
