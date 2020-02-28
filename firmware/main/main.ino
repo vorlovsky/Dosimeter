@@ -434,10 +434,10 @@ void drawBatteryLevel() {
   if (voltage > 3.6) {
     display.drawBitmap(118, 11, battery_level_bmp, 8, 3, WHITE);
     
-    if (voltage > 3.8) {
+    if (voltage > 3.7) {
       display.drawBitmap(118, 8, battery_level_bmp, 8, 3, WHITE);
       
-      if (voltage > 4.0) {
+      if (voltage > 3.85) {
         display.drawBitmap(118, 5, battery_level_bmp, 8, 3, WHITE);
       }
     }
