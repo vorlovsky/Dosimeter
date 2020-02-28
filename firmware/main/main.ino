@@ -13,6 +13,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+#define MAX_UINT 65535
+
 #define OLED_RESET 4
 Adafruit_SSD1306 display(128, 32, &Wire, OLED_RESET);
 
@@ -133,12 +135,13 @@ static const unsigned char PROGMEM mute_bmp[] =
 #define MEASUREMENTS_LOG_SECS 60
 #define DEBOUNCE_DELAY 100
 #define BUTTON_HOLD_DELAY 2000
-#define displayModeS_COUNT 3
+#define DISPLAY_MODES_COUNT 4
 
 volatile unsigned int newTicks = 0;
 
 unsigned int ticksLog[MEASUREMENT_SECS];
 unsigned int tickCountsLog[MEASUREMENTS_LOG_SECS];
+unsigned int tickCountsSortedLog[MEASUREMENTS_LOG_SECS];
 int ticksLogIndex = -1;
 int tickCountsLogIndex = -1;
 
@@ -196,7 +199,7 @@ void sensorISR() {
 }
 
 void loop() {
-//  unsigned long startMillis = millis();
+  unsigned long startMillis = millis();
 
   unsigned int _newTicks = newTicks;
   newTicks = 0;
@@ -212,7 +215,7 @@ void loop() {
   updateDisplay(hasNewTicks);
   activateBuzzer(hasNewTicks);
 
-//  Serial.println(millis() - startMillis);
+  Serial.println(millis() - startMillis);
 }
 
 void checkButtonState() {
@@ -259,7 +262,7 @@ void toggleMute() {
 void changedisplayMode() {
   displayMode++;
 
-  if(displayMode >= displayModeS_COUNT) {
+  if(displayMode >= DISPLAY_MODES_COUNT) {
     displayMode = 0;
   }
 }
@@ -324,24 +327,33 @@ void updateTicksLog() {
 }
 
 void updateTickCountsLog() {
+  byte i;
+  
   if(tickCountsLogIndex < (MEASUREMENTS_LOG_SECS - 1)) {
     tickCountsLogIndex++;
-  } else {
-    tickCountsLogSum -= tickCountsLog[0];
+  } else {    
+    unsigned int tickCountsToRemove = tickCountsLog[0];
+    
+    tickCountsLogSum -= tickCountsToRemove;
 
-    if(tickCountsLogMax == tickCountsLog[0]) {
+    if(tickCountsLogMax == tickCountsToRemove) {
       tickCountsLogMax = 0;
       
-      for(byte i = 1; i <= tickCountsLogIndex; i++) {
+      for(i = 1; i <= tickCountsLogIndex; i++) {
         if(tickCountsLogMax < tickCountsLog[i]) {
            tickCountsLogMax = tickCountsLog[i];
         }
       }
     }
     
-    for(byte i = 1; i <= tickCountsLogIndex; i++) {
-      tickCountsLog[i - 1] = tickCountsLog[i];
+    for(i = 0; i < tickCountsLogIndex; i++) {
+      tickCountsLog[i] = tickCountsLog[i + 1];
+
+      if(tickCountsSortedLog[i] >= tickCountsToRemove) {
+        tickCountsSortedLog[i] = tickCountsSortedLog[i + 1];
+      }
     }
+    tickCountsSortedLog[tickCountsLogIndex] = MAX_UINT;        
   }
   
   tickCountsLog[tickCountsLogIndex] = ticksCount;
@@ -355,6 +367,39 @@ void updateTickCountsLog() {
   if(tickCountsOverallMax < ticksCount) {
     tickCountsOverallMax = ticksCount;
   }
+
+//  Serial.print("Add ");
+//  Serial.print(ticksCount);
+
+  for(i = 0; i < tickCountsLogIndex; i++) {
+    if(tickCountsSortedLog[i] > ticksCount) {
+      break;
+    }
+  }
+  
+//  Serial.print(" at index ");
+//  Serial.print(i);
+//  Serial.print(" of ");
+//  Serial.println(tickCountsLogIndex);
+
+  for(byte j = tickCountsLogIndex; j > i; j--) {
+    tickCountsSortedLog[j] = tickCountsSortedLog[j - 1];
+  }
+
+  tickCountsSortedLog[i] = ticksCount;
+
+//  for(i = 0; i <= tickCountsLogIndex; i++) {
+//    Serial.print(tickCountsLog[i]);
+//    Serial.print(",");
+//  }
+//  Serial.println();
+//
+//  for(i = 0; i <= tickCountsLogIndex; i++) {
+//    Serial.print(tickCountsSortedLog[i]);
+//    Serial.print(",");
+//  }
+//  Serial.println();
+//  Serial.println();
 }
 
 void updateDisplay(boolean hasNewTicks) {
@@ -375,7 +420,7 @@ void drawValues() {
 
   switch(displayMode) {
     case 0:
-      drawAverageValue();
+      drawMedianValue();
       break;
 
     case 1:
@@ -384,6 +429,10 @@ void drawValues() {
 
     case 2:
       drawOverallMaxValue();
+      break;
+
+    case 3:
+      drawAverageValue();
       break;
   }
 }
@@ -394,38 +443,43 @@ void drawCurrentValue() {
   drawFormattedValue(ticksCount);
 }
 
+void drawMedianValue() {
+  if(tickCountsLogIndex < 0) {
+    return;
+  }
+
+  int medianIndex = tickCountsLogIndex / 2;
+  unsigned long median = (tickCountsLogIndex % 2 == 0) ? tickCountsSortedLog[medianIndex] : (tickCountsSortedLog[medianIndex] + tickCountsSortedLog[medianIndex + 1]) / 2;
+  
+  drawSecondaryValue(median, "med");
+}
+
 void drawAverageValue() {
   if(tickCountsLogIndex < 0) {
     return;
   }
-  
-  display.setCursor(0,18);
-  
-  drawFormattedValue(tickCountsLogSum / (tickCountsLogIndex + 1)); // average ticks count
-  
-  display.setTextSize(1);
-  display.setCursor(60,24);  
-  display.println("avg");
+
+  unsigned int average = tickCountsLogSum / (tickCountsLogIndex + 1);
+
+  drawSecondaryValue(average, "avg");
 }
 
 void drawLogMaxValue() {
-  display.setCursor(0,18);
-  
-  drawFormattedValue(tickCountsLogMax);
-
-  display.setTextSize(1);
-  display.setCursor(60,24);  
-  display.println("max");
+  drawSecondaryValue(tickCountsLogMax, "max");
 }
 
 void drawOverallMaxValue() {
-  display.setCursor(0,18);
-  
-  drawFormattedValue(tickCountsOverallMax);
+  drawSecondaryValue(tickCountsOverallMax, "Max");
+}
 
+void drawSecondaryValue(unsigned long value, const char* label) {  
+  display.setCursor(0,18);
+
+  drawFormattedValue(value);
+  
   display.setTextSize(1);
   display.setCursor(60,24);  
-  display.println("Max");
+  display.println(label);
 }
 
 void drawBatteryLevel() {
